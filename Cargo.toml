@@ -1,0 +1,7 @@
+[package]
+authors = ["49nord GmbH <marc@49nord.de>"]
+name = "utimeseries"
+version = "0.1.0"
+
+[dependencies]
+byte_conv = "0.1.1"
