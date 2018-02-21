@@ -54,12 +54,18 @@ impl FileHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
-struct BlockHeader<T> {
+struct BlockHeader {
     offset_ns: u64,
+}
 
-    _pd: PhantomData<T>,
+impl BlockHeader {
+    fn new(offset: time::Duration) -> Result<BlockHeader, Error> {
+        Ok(BlockHeader {
+            offset_ns: util::duration_ns64(offset).ok_or_else(|| Error::IntervalOutOfRange)?,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -94,6 +100,22 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
             out,
             _pd: PhantomData::<T>,
         })
+    }
+
+    fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
+        // create a new block header to insert
+        let header = BlockHeader::new(offset)?;
+
+        self.out.write_all(header.as_bytes())?;
+
+        // write out all values sequentially
+        for val in values {
+            self.out.write_all(val.as_bytes())?;
+        }
+
+        // no flushing, this is up to the client
+
+        Ok(())
     }
 }
 
