@@ -355,7 +355,7 @@ where
         // we are guaranteed at least one item now
         let rv = (self.offset, self.data[self.index]);
         self.index += 1;
-        self.offset += unimplemented!();
+        self.offset += self.block_iter.reader.interval();
 
         return Some(Ok(rv));
     }
