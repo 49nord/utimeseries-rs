@@ -247,21 +247,21 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(unsafe { self.stream.read_raw() }?)
     }
 
-    fn iter_block_headers(&mut self) -> BlockHeaderIterator<T, R> {
-        BlockHeaderIterator { reader: self }
+    fn timestamp_iterator(&mut self) -> TimestampIterator<T, R> {
+        TimestampIterator { reader: self }
     }
 }
 
-struct BlockHeaderIterator<'a, T: 'a, R: 'a> {
+struct TimestampIterator<'a, T: 'a, R: 'a> {
     reader: &'a mut TimeseriesReader<T, R>,
 }
 
-impl<'a, T, R> Iterator for BlockHeaderIterator<'a, T, R>
+impl<'a, T, R> Iterator for TimestampIterator<'a, T, R>
 where
     T: Copy + Sized,
     R: Read + Seek,
 {
-    type Item = Result<BlockHeader, Error>;
+    type Item = Result<time::Duration, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // initial position
@@ -276,7 +276,7 @@ where
         // the next block
         let block_header = iter_try!(self.reader.load_block_header());
 
-        Some(Ok(block_header))
+        Some(Ok(block_header.duration()))
     }
 }
 
