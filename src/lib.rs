@@ -73,9 +73,8 @@ impl<T: Sized + Copy> TimeseriesWriter<T> {
     ) -> Result<Self, Error> {
         let mut out = fs::File::create(dest)?;
 
-        let header = FileHeader::new(start, interval)?;
-
         // write out header and flush
+        let header = FileHeader::new(start, interval)?;
         out.write_all(header.as_bytes())?;
         out.sync_all()?;
 
