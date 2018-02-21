@@ -56,7 +56,7 @@ impl FileHeader {
 
     fn load<R: Read>(r: &mut R) -> Result<Self, Error> {
         // read header from file
-        let header: FileHeader = unsafe { r.read_raw()? };
+        let header: FileHeader = unsafe { r.read_raw() }?;
 
         // verify it is a valid header by checking the magic number
         if header.magic_number != MAGIC_NUMBER {
