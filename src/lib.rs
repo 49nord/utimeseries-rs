@@ -71,7 +71,7 @@ impl<T: Sized + Copy> TimeseriesWriter<T> {
 
         // write out header and flush
         out.write_all(header.as_bytes())?;
-        out.flush()?;
+        out.sync_all()?;
 
         Ok(TimeseriesWriter {
             _pd: PhantomData::<T>,
