@@ -29,3 +29,18 @@ fn duration_fails_for_invalid_values() {
     let duration = time::Duration::new(u64::MAX / NS_PER_S, (NS_PER_S + 1) as u32);
     assert_eq!(duration_ns64(duration), None);
 }
+
+/// Convert 64-bit nanosecond integer into duration
+pub fn ns64_duration(ns: u64) -> time::Duration {
+    // this will never fail, since `time::Duration` is larger than a single u64
+    time::Duration::new(ns / NS_PER_S, (ns % NS_PER_S) as u32)
+}
+
+#[test]
+fn duration_roundtrip_ns64() {
+    let duration = time::Duration::new(60, 500);
+    assert_eq!(
+        time::Duration::new(60, 500),
+        ns64_duration(duration_ns64(duration).unwrap())
+    )
+}
