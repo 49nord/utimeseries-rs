@@ -1,5 +1,5 @@
 use std::{mem, slice, time};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek};
 
 const NS_PER_S: u64 = 1_000_000_000;
 
@@ -80,7 +80,7 @@ fn test_tell_works_after_write() {
 
 #[test]
 fn test_tell_works_after_seek() {
-    use std::io::{Cursor, SeekFrom, Write};
+    use std::io::{Cursor, SeekFrom};
 
     let mut buf = Cursor::new(vec![0; 20]);
 
