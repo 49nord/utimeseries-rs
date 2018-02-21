@@ -1,4 +1,5 @@
 use std::time;
+use std::io::{self, Seek};
 
 const NS_PER_S: u64 = 1_000_000_000;
 
@@ -43,4 +44,21 @@ fn duration_roundtrip_ns64() {
         time::Duration::new(60, 500),
         ns64_duration(duration_ns64(duration).unwrap())
     )
+}
+
+/// Tell (seek) trait
+///
+/// Implements the commonly used `tell` function that is missing from stdlib
+pub trait Tell {
+    /// Returns the current position from the start in a stream
+    fn tell(&mut self) -> io::Result<u64>;
+}
+
+impl<T> Tell for T
+where
+    T: Seek,
+{
+    fn tell(&mut self) -> io::Result<u64> {
+        self.seek(io::SeekFrom::Current(0))
+    }
 }
