@@ -21,5 +21,9 @@ quick_error! {
             description("corrupt header")
             display("The header of the database file is corrupt or not present")
         }
+        BlockSizeMismatch(want: u32, have: u32) {
+            description("block size mismatch")
+            display("Invalid number of items for block. Block length is {} items, but got passed {}", want, have)
+        }
     }
 }

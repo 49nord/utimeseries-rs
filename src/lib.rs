@@ -154,6 +154,14 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     }
 
     pub fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
+        // check values are of correct size
+        if self.block_length() as usize != values.len() {
+            return Err(Error::BlockSizeMismatch(
+                self.block_length(),
+                values.len() as u32,
+            ));
+        }
+
         // create a new block header to insert
         let header = BlockHeader::new(offset)?;
 
