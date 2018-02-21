@@ -16,7 +16,7 @@ use util::{ReadRaw, Tell};
 
 const MAGIC_NUMBER: u32 = 0x01755453;
 const FILE_HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
-// const BLOCK_HEADER_SIZE
+const BLOCK_HEADER_SIZE: u64 = mem::size_of::<BlockHeader>() as u64;
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -75,7 +75,7 @@ impl FileHeader {
     }
 
     fn block_size<T: Sized>(&self) -> u64 {
-        mem::size_of::<T>() as u64 * self.block_length as u64
+        BLOCK_HEADER_SIZE + mem::size_of::<T>() as u64 * self.block_length as u64
     }
 
     fn nth_block_start<T: Sized>(&self, n: u64) -> u64 {
