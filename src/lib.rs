@@ -46,6 +46,10 @@ impl FileHeader {
     fn interval(&self) -> time::Duration {
         util::ns64_duration(self.interval_ns)
     }
+
+    fn start_time(&self) -> time::SystemTime {
+        time::UNIX_EPOCH + time::Duration::new(self.start_delta_s, self.start_delta_ns)
+    }
 }
 
 #[derive(Debug)]
