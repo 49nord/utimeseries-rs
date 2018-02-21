@@ -100,6 +100,14 @@ impl BlockHeader {
             offset_ns: util::duration_ns64(offset).ok_or_else(|| Error::IntervalOutOfRange)?,
         })
     }
+
+    fn load<R: Read>(r: &mut R) -> Result<Self, Error> {
+        Ok(unsafe { r.read_raw() }?)
+    }
+
+    fn duration(&self) -> std::time::Duration {
+        util::ns64_duration(self.offset_ns)
+    }
 }
 
 #[derive(Debug)]
