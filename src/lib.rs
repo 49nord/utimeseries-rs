@@ -6,13 +6,13 @@ extern crate quick_error;
 use byte_conv::As;
 use std::{fs, io, mem, path, time, u32};
 use std::marker::PhantomData;
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 
 mod err;
 mod util;
 
 pub use err::Error;
-use util::Tell;
+use util::{ReadRaw, Tell};
 
 const MAGIC_NUMBER: u32 = 0x01755453;
 const HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
@@ -23,26 +23,46 @@ struct FileHeader {
     /// Magic number, used for sanity checks
     magic_number: u32,
 
-    // Initial time value
-    start_delta_s: u64,
-    start_delta_ns: u32,
+    // Number of items in a single block
+    block_length: u32,
 
     // Interval inside blocks
     interval_ns: u64,
+
+    // Initial time value
+    start_delta_s: u64,
+    start_delta_ns: u32,
 }
 
 impl FileHeader {
-    fn new(start: time::SystemTime, interval: time::Duration) -> Result<Self, Error> {
+    fn new(
+        block_length: u32,
+        start: time::SystemTime,
+        interval: time::Duration,
+    ) -> Result<Self, Error> {
         let epoch_delta = start
             .duration_since(time::UNIX_EPOCH)
             .map_err(|_| Error::TimeOutOfRange)?;
 
         Ok(FileHeader {
             magic_number: MAGIC_NUMBER,
+            block_length,
             start_delta_s: epoch_delta.as_secs(),
             start_delta_ns: epoch_delta.subsec_nanos(),
             interval_ns: util::duration_ns64(interval).ok_or_else(|| Error::IntervalOutOfRange)?,
         })
+    }
+
+    fn load<R: Read>(r: &mut R) -> Result<Self, Error> {
+        // read header from file
+        let header: FileHeader = unsafe { r.read_raw()? };
+
+        // verify it is a valid header by checking the magic number
+        if header.magic_number != MAGIC_NUMBER {
+            Err(Error::CorruptHeader)
+        } else {
+            Ok(header)
+        }
     }
 
     fn interval(&self) -> time::Duration {
@@ -71,6 +91,7 @@ impl BlockHeader {
 #[derive(Debug)]
 struct TimeseriesWriter<T, W> {
     out: W,
+    block_length: u32,
     _pd: PhantomData<T>,
 }
 
@@ -89,15 +110,17 @@ impl<T: Sized, W> TimeseriesWriter<T, W> {
 impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     fn create(
         mut out: W,
+        block_length: u32,
         start: time::SystemTime,
         interval: time::Duration,
     ) -> Result<Self, Error> {
         // write out header
-        let header = FileHeader::new(start, interval)?;
+        let header = FileHeader::new(block_length, start, interval)?;
         out.write_all(header.as_bytes())?;
 
         Ok(TimeseriesWriter {
             out,
+            block_length,
             _pd: PhantomData::<T>,
         })
     }
@@ -119,7 +142,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     }
 }
 
-impl<T: Sized + Copy, W: Write + Seek> TimeseriesWriter<T, W> {
+impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
     fn append(mut out: W) -> Result<Self, Error> {
         // get current size by seeking to the end and getting the current pos
         let sz = out.seek(io::SeekFrom::End(0))?;
@@ -128,6 +151,10 @@ impl<T: Sized + Copy, W: Write + Seek> TimeseriesWriter<T, W> {
         if sz < HEADER_SIZE {
             return Err(Error::CorruptHeader);
         }
+
+        // read the header, this will return an error if the header is corrupt
+        out.seek(io::SeekFrom::Start(0))?;
+        let header = FileHeader::load(&mut out)?;
 
         let data_len = sz - HEADER_SIZE;
         let complete_blocks = data_len - (data_len % Self::block_size());
@@ -140,6 +167,7 @@ impl<T: Sized + Copy, W: Write + Seek> TimeseriesWriter<T, W> {
 
         Ok(TimeseriesWriter {
             out,
+            block_length: header.block_length,
             _pd: PhantomData::<T>,
         })
     }
