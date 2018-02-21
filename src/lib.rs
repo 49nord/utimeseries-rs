@@ -13,6 +13,7 @@ mod err;
 pub use err::Error;
 
 const MAGIC_NUMBER: u32 = 0x01755453;
+const NS_PER_S: u64 = 1_000_000_000;
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -25,7 +26,7 @@ struct FileHeader {
     start_delta_ns: u32,
 
     // Interval inside blocks
-    interval_ns: u32,
+    interval_ns: u64,
 }
 
 impl FileHeader {
@@ -34,11 +35,10 @@ impl FileHeader {
             .duration_since(time::UNIX_EPOCH)
             .map_err(|_| Error::TimeOutOfRange)?;
 
-        let interval_s: u32 = cast::u32(interval.as_secs()).map_err(|e| Error::IntervalOutOfRange)?;
-        let interval_ns: u32 = cast::u32(interval.as_secs())
-            .ok()
-            .and_then(|n| n.checked_mul(1_000_000_000))
-            .and_then(|n| n.checked_add(interval_s))
+        let interval_ns: u64 = interval
+            .as_secs()
+            .checked_mul(NS_PER_S)
+            .and_then(|n| n.checked_add(interval.subsec_nanos() as u64))
             .ok_or_else(|| Error::IntervalOutOfRange)?;
 
         Ok(FileHeader {
