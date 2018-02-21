@@ -6,7 +6,7 @@ extern crate quick_error;
 use byte_conv::As;
 use std::{fs, io, mem, path, time, u32};
 use std::marker::PhantomData;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 mod err;
 mod util;
@@ -180,6 +180,27 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
             out,
             header: header,
             _pd: PhantomData::<T>,
+        })
+    }
+}
+
+struct TimeseriesReader<T, R> {
+    stream: R,
+    header: FileHeader,
+    _pd: PhantomData<T>,
+}
+
+impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
+    fn open(mut stream: R) -> Result<Self, Error> {
+        stream.seek(SeekFrom::Start(0))?;
+
+        // read header first
+        let header = FileHeader::load(&mut stream)?;
+
+        Ok(TimeseriesReader {
+            stream,
+            header,
+            _pd: PhantomData,
         })
     }
 }
