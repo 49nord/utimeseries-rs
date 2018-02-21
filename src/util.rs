@@ -63,17 +63,12 @@ where
     }
 }
 
-/// Read dumped in-memory data from stream
-pub trait ReadFrom: Sized {
-    /// Read an item from a reader
-    unsafe fn read_from<R: Read>(r: &mut R) -> io::Result<Self>;
+pub trait ReadRaw {
+    unsafe fn read_raw<T: Copy + Sized>(&mut self) -> io::Result<T>;
 }
 
-impl<T> ReadFrom for T
-where
-    T: Sized + Copy,
-{
-    unsafe fn read_from<R: Read>(r: &mut R) -> io::Result<Self> {
+impl<R: Read> ReadRaw for R {
+    unsafe fn read_raw<T: Copy + Sized>(&mut self) -> io::Result<T> {
         // prepare buffer sized the same as type
         let mut val: T = mem::uninitialized();
 
@@ -81,7 +76,7 @@ where
         let buf: &mut [u8] =
             slice::from_raw_parts_mut(&mut val as *mut T as *mut u8, mem::size_of::<T>());
 
-        r.read_exact(buf)?;
+        self.read_exact(buf)?;
         Ok(val)
     }
 }
