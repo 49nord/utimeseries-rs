@@ -4,7 +4,7 @@ extern crate cast;
 extern crate quick_error;
 
 use byte_conv::As;
-use std::{fs, io, mem, path, time, u32};
+use std::{io, mem, time, u32};
 use std::marker::PhantomData;
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -112,7 +112,7 @@ impl BlockHeader {
 }
 
 #[derive(Debug)]
-struct TimeseriesWriter<T, W> {
+pub struct TimeseriesWriter<T, W> {
     out: W,
     header: FileHeader,
     _pd: PhantomData<T>,
@@ -153,7 +153,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
         })
     }
 
-    fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
+    pub fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
         // create a new block header to insert
         let header = BlockHeader::new(offset)?;
 
@@ -171,7 +171,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
 }
 
 impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
-    fn append(mut out: W) -> Result<Self, Error> {
+    pub fn append(mut out: W) -> Result<Self, Error> {
         // get current size by seeking to the end and getting the current pos
         let sz = out.seek(io::SeekFrom::End(0))?;
 
@@ -193,7 +193,7 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
     }
 }
 
-struct TimeseriesReader<T, R> {
+pub struct TimeseriesReader<T, R> {
     stream: R,
     header: FileHeader,
     _pd: PhantomData<T>,
@@ -247,12 +247,12 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(unsafe { self.stream.read_raw() }?)
     }
 
-    fn timestamp_iterator(&mut self) -> TimestampIterator<T, R> {
+    pub fn timestamp_iterator(&mut self) -> TimestampIterator<T, R> {
         TimestampIterator { reader: self }
     }
 }
 
-struct TimestampIterator<'a, T: 'a, R: 'a> {
+pub struct TimestampIterator<'a, T: 'a, R: 'a> {
     reader: &'a mut TimeseriesReader<T, R>,
 }
 
@@ -280,7 +280,7 @@ where
     }
 }
 
-struct BlockIterator<'a, T: 'a, R: 'a> {
+pub struct BlockIterator<'a, T: 'a, R: 'a> {
     reader: &'a mut TimeseriesReader<T, R>,
 }
 
@@ -310,7 +310,7 @@ where
     }
 }
 
-struct RecordIterator<'a, T: 'a, R: 'a> {
+pub struct RecordIterator<'a, T: 'a, R: 'a> {
     block_iter: &'a mut BlockIterator<'a, T, R>,
     offset: time::Duration,
     data: Vec<T>,
