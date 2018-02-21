@@ -1,5 +1,5 @@
-use std::time;
-use std::io::{self, Seek};
+use std::{mem, slice, time};
+use std::io::{self, Read, Seek};
 
 const NS_PER_S: u64 = 1_000_000_000;
 
@@ -60,5 +60,28 @@ where
 {
     fn tell(&mut self) -> io::Result<u64> {
         self.seek(io::SeekFrom::Current(0))
+    }
+}
+
+/// Read dumped in-memory data from stream
+pub trait ReadFrom: Sized {
+    /// Read an item from a reader
+    unsafe fn read_from<R: Read>(mut r: R) -> io::Result<Self>;
+}
+
+impl<T> ReadFrom for T
+where
+    T: Sized + Copy,
+{
+    unsafe fn read_from<R: Read>(mut r: R) -> io::Result<Self> {
+        // prepare buffer sized the same as type
+        let mut val: T = mem::uninitialized();
+
+        // construct raw slice over `val`
+        let buf: &mut [u8] =
+            slice::from_raw_parts_mut(&mut val as *mut T as *mut u8, mem::size_of::<T>());
+
+        r.read_exact(buf)?;
+        Ok(val)
     }
 }
