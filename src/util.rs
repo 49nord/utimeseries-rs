@@ -138,3 +138,11 @@ fn test_read_raw_roundtrip() {
 
     assert_eq!(snd, orig);
 }
+
+// FIXME: maybe move this to itertools?
+macro_rules! iter_try {
+    ($e: expr) => (match $e {
+        Ok(v) => v,
+        Err(e) => return Some(Err(e.into())),
+    })
+}
