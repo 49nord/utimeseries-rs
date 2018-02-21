@@ -15,7 +15,8 @@ pub use err::Error;
 use util::{ReadRaw, Tell};
 
 const MAGIC_NUMBER: u32 = 0x01755453;
-const HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
+const FILE_HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
+// const BLOCK_HEADER_SIZE
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -72,6 +73,19 @@ impl FileHeader {
     fn start_time(&self) -> time::SystemTime {
         time::UNIX_EPOCH + time::Duration::new(self.start_delta_s, self.start_delta_ns)
     }
+
+    fn block_size<T: Sized>(&self) -> u64 {
+        mem::size_of::<T>() as u64 * self.block_length as u64
+    }
+
+    fn nth_block_start<T: Sized>(&self, n: u64) -> u64 {
+        FILE_HEADER_SIZE + n * self.block_size::<T>()
+    }
+
+    fn total_blocks<T: Sized>(&self, sz: u64) -> u64 {
+        let data_len = sz - FILE_HEADER_SIZE;
+        data_len - (data_len % self.block_size::<T>())
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -91,7 +105,7 @@ impl BlockHeader {
 #[derive(Debug)]
 struct TimeseriesWriter<T, W> {
     out: W,
-    block_length: u32,
+    header: FileHeader,
     _pd: PhantomData<T>,
 }
 
@@ -102,8 +116,13 @@ impl<T: Sized, W> TimeseriesWriter<T, W> {
     }
 
     #[inline]
-    fn block_size() -> u64 {
-        Self::entry_size()
+    fn block_size(&self) -> u64 {
+        self.header.block_size::<T>()
+    }
+
+    #[inline]
+    pub fn block_length(&self) -> u32 {
+        self.header.block_length
     }
 }
 
@@ -120,7 +139,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
 
         Ok(TimeseriesWriter {
             out,
-            block_length,
+            header,
             _pd: PhantomData::<T>,
         })
     }
@@ -147,27 +166,19 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
         // get current size by seeking to the end and getting the current pos
         let sz = out.seek(io::SeekFrom::End(0))?;
 
-        // if our file is corrupt (broken header), we return an error
-        if sz < HEADER_SIZE {
-            return Err(Error::CorruptHeader);
-        }
-
         // read the header, this will return an error if the header is corrupt
         out.seek(io::SeekFrom::Start(0))?;
         let header = FileHeader::load(&mut out)?;
 
-        let data_len = sz - HEADER_SIZE;
-        let complete_blocks = data_len - (data_len % Self::block_size());
-
         // otherwise, seek to insert position, which is after the last
         // correctly written input block
         out.seek(io::SeekFrom::Start(
-            HEADER_SIZE + complete_blocks * Self::block_size(),
+            header.nth_block_start::<T>(header.total_blocks::<T>(sz)),
         ))?;
 
         Ok(TimeseriesWriter {
             out,
-            block_length: header.block_length,
+            header: header,
             _pd: PhantomData::<T>,
         })
     }
