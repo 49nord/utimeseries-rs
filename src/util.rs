@@ -63,6 +63,38 @@ where
     }
 }
 
+#[test]
+fn test_tell_works_after_write() {
+    use std::io::{Cursor, Write};
+
+    let mut buf = Cursor::new(vec![0; 20]);
+
+    assert_eq!(0, buf.tell().unwrap());
+
+    buf.write_all(b"asdf").unwrap();
+    assert_eq!(4, buf.tell().unwrap());
+
+    buf.write_all(b"qq").unwrap();
+    assert_eq!(6, buf.tell().unwrap());
+}
+
+#[test]
+fn test_tell_works_after_seek() {
+    use std::io::{Cursor, SeekFrom, Write};
+
+    let mut buf = Cursor::new(vec![0; 20]);
+
+    assert_eq!(0, buf.tell().unwrap());
+
+    buf.seek(SeekFrom::Start(10)).unwrap();
+
+    assert_eq!(10, buf.tell().unwrap());
+
+    buf.seek(SeekFrom::End(0)).unwrap();
+
+    assert_eq!(20, buf.tell().unwrap());
+}
+
 pub trait ReadRaw {
     unsafe fn read_raw<T: Copy + Sized>(&mut self) -> io::Result<T>;
 }
