@@ -228,34 +228,124 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
 
         Ok(())
     }
+
+    fn block_size(&self) -> u64 {
+        self.header.block_size::<T>()
+    }
+
+    fn file_pos(&mut self) -> io::Result<u64> {
+        self.stream.tell()
+    }
+
+    #[inline]
+    fn load_block_header(&mut self) -> Result<BlockHeader, Error> {
+        Ok(BlockHeader::load(&mut self.stream)?)
+    }
+
+    #[inline]
+    fn load_record(&mut self) -> Result<T, Error> {
+        Ok(unsafe { self.stream.read_raw() }?)
+    }
+
+    fn iter_block_headers(&mut self) -> BlockHeaderIterator<T, R> {
+        BlockHeaderIterator { reader: self }
+    }
 }
 
-impl<T, R> Iterator for TimeseriesReader<T, R>
+struct BlockHeaderIterator<'a, T: 'a, R: 'a> {
+    reader: &'a mut TimeseriesReader<T, R>,
+}
+
+impl<'a, T, R> Iterator for BlockHeaderIterator<'a, T, R>
 where
     T: Copy + Sized,
-    R: Read + util::Tell + Seek,
+    R: Read + Seek,
 {
-    type Item = Result<(time::Duration, Vec<T>), Error>;
+    type Item = Result<BlockHeader, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // initial position
-        let pos = iter_try!(self.stream.tell());
+        let pos = iter_try!(self.reader.file_pos());
 
         // if there's not enough space for another block, don't read
-        if pos + self.header.block_size::<T>() >= self.stream_length {
+        if pos + self.reader.block_size() >= self.reader.stream_length {
             return None;
         }
 
         // at this point we can be sure that we have enough "runway" to read
         // the next block
-        let block_header = iter_try!(BlockHeader::load(&mut self.stream));
+        let block_header = iter_try!(self.reader.load_block_header());
+
+        Some(Ok(block_header))
+    }
+}
+
+struct BlockIterator<'a, T: 'a, R: 'a> {
+    reader: &'a mut TimeseriesReader<T, R>,
+}
+
+impl<'a, T, R> Iterator for BlockIterator<'a, T, R>
+where
+    T: Copy + Sized,
+    R: Read + Seek,
+{
+    type Item = Result<(time::Duration, Vec<T>), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // initial position
+        let pos = iter_try!(self.reader.file_pos());
+        if pos + self.reader.block_size() >= self.reader.stream_length {
+            return None;
+        }
+        let block_header = iter_try!(self.reader.load_block_header());
 
         // load data
-        let mut buf = Vec::with_capacity(self.header.block_length as usize);
-        for _ in 0..self.header.block_length {
-            buf.push(iter_try!(unsafe { self.stream.read_raw() }))
+        let n = self.reader.header.block_length as usize;
+        let mut buf = Vec::with_capacity(n);
+        for _ in 0..n {
+            buf.push(iter_try!(self.reader.load_record()))
         }
 
         Some(Ok((block_header.duration(), buf)))
+    }
+}
+
+struct RecordIterator<'a, T: 'a, R: 'a> {
+    block_iter: &'a mut BlockIterator<'a, T, R>,
+    offset: time::Duration,
+    data: Vec<T>,
+    index: usize,
+}
+
+impl<'a, T, R> Iterator for RecordIterator<'a, T, R>
+where
+    T: Copy + Sized,
+    R: Read + Seek,
+{
+    type Item = Result<(time::Duration, T), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // refill current block if empty
+        if self.index >= self.data.len() {
+            match self.block_iter.next() {
+                Some(Ok((offset, data))) => {
+                    self.offset = offset;
+                    self.data = data;
+                    self.index = 0;
+                }
+                Some(Err(e)) => return Some(Err(e.into())),
+                None => {
+                    // no more blocks -> we're done
+                    return None;
+                }
+            }
+        }
+
+        // we are guaranteed at least one item now
+        let rv = (self.offset, self.data[self.index]);
+        self.index += 1;
+        self.offset += unimplemented!();
+
+        return Some(Ok(rv));
     }
 }
