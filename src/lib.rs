@@ -28,6 +28,28 @@ struct FileHeader {
     interval_ns: u32,
 }
 
+impl FileHeader {
+    fn new(start: time::SystemTime, interval: time::Duration) -> Result<Self, Error> {
+        let epoch_delta = start
+            .duration_since(time::UNIX_EPOCH)
+            .map_err(|_| Error::TimeOutOfRange)?;
+
+        let interval_s: u32 = cast::u32(interval.as_secs()).map_err(|e| Error::IntervalOutOfRange)?;
+        let interval_ns: u32 = cast::u32(interval.as_secs())
+            .ok()
+            .and_then(|n| n.checked_mul(1_000_000_000))
+            .and_then(|n| n.checked_add(interval_s))
+            .ok_or_else(|| Error::IntervalOutOfRange)?;
+
+        Ok(FileHeader {
+            magic_number: MAGIC_NUMBER,
+            start_delta_s: epoch_delta.as_secs(),
+            start_delta_ns: epoch_delta.subsec_nanos(),
+            interval_ns,
+        })
+    }
+}
+
 #[derive(Debug)]
 #[repr(C)]
 struct BlockHeader<T> {
@@ -49,25 +71,7 @@ impl<T: Sized + Copy> TimeseriesWriter<T> {
     ) -> Result<Self, Error> {
         let mut out = fs::File::create(dest)?;
 
-        let epoch_delta = start
-            .duration_since(time::UNIX_EPOCH)
-            .map_err(|_| Error::TimeOutOfRange)?;
-
-        let interval_s: u32 = cast::u32(interval.as_secs()).map_err(|e| Error::IntervalOutOfRange)?;
-        let interval_ns: u32 = cast::u32(interval.as_secs())
-            .ok()
-            .and_then(|n| n.checked_mul(1_000_000_000))
-            .and_then(|n| n.checked_add(interval_s))
-            .ok_or_else(|| Error::IntervalOutOfRange)?;
-
-        let header = {
-            FileHeader {
-                magic_number: MAGIC_NUMBER,
-                start_delta_s: epoch_delta.as_secs(),
-                start_delta_ns: epoch_delta.subsec_nanos(),
-                interval_ns,
-            }
-        };
+        let header = FileHeader::new(start, interval)?;
 
         // write out header and flush
         out.write_all(header.as_bytes())?;
