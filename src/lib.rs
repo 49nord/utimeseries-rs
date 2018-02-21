@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 mod err;
+#[macro_use]
 mod util;
 
 pub use err::Error;
@@ -196,19 +197,65 @@ struct TimeseriesReader<T, R> {
     stream: R,
     header: FileHeader,
     _pd: PhantomData<T>,
+    stream_length: u64,
 }
 
 impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
-    fn open(mut stream: R) -> Result<Self, Error> {
+    pub fn open(mut stream: R) -> Result<Self, Error> {
         stream.seek(SeekFrom::Start(0))?;
 
-        // read header first
+        // read header first, stop at first item
         let header = FileHeader::load(&mut stream)?;
 
-        Ok(TimeseriesReader {
+        let mut rd = TimeseriesReader {
             stream,
             header,
             _pd: PhantomData,
-        })
+            stream_length: 0,
+        };
+
+        rd.refresh()?;
+
+        Ok(rd)
+    }
+
+    pub fn refresh(&mut self) -> Result<(), io::Error> {
+        let cur_pos = self.stream.tell()?;
+
+        self.stream_length = self.stream.seek(SeekFrom::End(0))?;
+
+        self.stream.seek(SeekFrom::Start(cur_pos))?;
+
+        Ok(())
+    }
+}
+
+impl<T, R> Iterator for TimeseriesReader<T, R>
+where
+    T: Copy + Sized,
+    R: Read + util::Tell + Seek,
+{
+    type Item = Result<(time::Duration, Vec<T>), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // initial position
+        let pos = iter_try!(self.stream.tell());
+
+        // if there's not enough space for another block, don't read
+        if pos + self.header.block_size::<T>() >= self.stream_length {
+            return None;
+        }
+
+        // at this point we can be sure that we have enough "runway" to read
+        // the next block
+        let block_header = iter_try!(BlockHeader::load(&mut self.stream));
+
+        // load data
+        let mut buf = Vec::with_capacity(self.header.block_length as usize);
+        for _ in 0..self.header.block_length {
+            buf.push(iter_try!(unsafe { self.stream.read_raw() }))
+        }
+
+        Some(Ok((block_header.duration(), buf)))
     }
 }
