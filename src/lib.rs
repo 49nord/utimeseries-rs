@@ -120,23 +120,13 @@ pub struct TimeseriesWriter<T, W> {
 
 impl<T: Sized, W> TimeseriesWriter<T, W> {
     #[inline]
-    fn entry_size() -> u64 {
-        mem::size_of::<T>() as u64
-    }
-
-    #[inline]
-    fn block_size(&self) -> u64 {
-        self.header.block_size::<T>()
-    }
-
-    #[inline]
-    pub fn block_length(&self) -> u32 {
+    fn block_length(&self) -> u32 {
         self.header.block_length
     }
 }
 
 impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
-    fn create(
+    pub fn create(
         mut out: W,
         block_length: u32,
         start: time::SystemTime,
@@ -241,6 +231,19 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         self.header.block_size::<T>()
     }
 
+    pub fn start_time(&self) -> time::SystemTime {
+        self.header.start_time()
+    }
+
+    pub fn interval(&self) -> time::Duration {
+        self.header.interval()
+    }
+
+    #[inline]
+    fn block_length(&self) -> u32 {
+        self.header.block_length
+    }
+
     fn file_pos(&mut self) -> io::Result<u64> {
         self.stream.tell()
     }
@@ -308,7 +311,7 @@ where
         let block_header = iter_try!(self.reader.load_block_header());
 
         // load data
-        let n = self.reader.header.block_length as usize;
+        let n = self.reader.block_length() as usize;
         let mut buf = Vec::with_capacity(n);
         for _ in 0..n {
             buf.push(iter_try!(self.reader.load_record()))
