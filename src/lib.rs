@@ -4,16 +4,18 @@ extern crate cast;
 extern crate quick_error;
 
 use byte_conv::As;
-use std::{fs, io, path, time, u32};
+use std::{fs, io, mem, path, time, u32};
 use std::marker::PhantomData;
-use std::io::Write;
+use std::io::{Seek, Write};
 
 mod err;
 mod util;
 
 pub use err::Error;
+use util::Tell;
 
 const MAGIC_NUMBER: u32 = 0x01755453;
+const HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -61,24 +63,61 @@ struct BlockHeader<T> {
 }
 
 #[derive(Debug)]
-struct TimeseriesWriter<T> {
+struct TimeseriesWriter<T, W> {
+    out: W,
     _pd: PhantomData<T>,
 }
 
-impl<T: Sized + Copy> TimeseriesWriter<T> {
-    fn create<P: AsRef<path::Path>>(
-        dest: P,
+impl<T: Sized, W> TimeseriesWriter<T, W> {
+    #[inline]
+    fn entry_size() -> u64 {
+        mem::size_of::<T>() as u64
+    }
+
+    #[inline]
+    fn block_size() -> u64 {
+        Self::entry_size()
+    }
+}
+
+impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
+    fn create(
+        mut out: W,
         start: time::SystemTime,
         interval: time::Duration,
     ) -> Result<Self, Error> {
-        let mut out = fs::File::create(dest)?;
-
-        // write out header and flush
+        // write out header
         let header = FileHeader::new(start, interval)?;
         out.write_all(header.as_bytes())?;
-        out.sync_all()?;
 
         Ok(TimeseriesWriter {
+            out,
+            _pd: PhantomData::<T>,
+        })
+    }
+}
+
+impl<T: Sized + Copy, W: Write + Seek> TimeseriesWriter<T, W> {
+    fn append(mut out: W) -> Result<Self, Error> {
+        // get current size by seeking to the end and getting the current pos
+        let sz = out.seek(io::SeekFrom::End(0))?;
+
+        // if our file is corrupt (broken header), we return an error
+        if sz < HEADER_SIZE {
+            return Err(Error::CorruptHeader);
+        }
+
+        let data_len = sz - HEADER_SIZE;
+        let complete_blocks = data_len - (data_len % Self::block_size());
+
+        // otherwise, seek to insert position, which is after the last
+        // correctly written input block
+        out.seek(io::SeekFrom::Start(
+            HEADER_SIZE + complete_blocks * Self::block_size(),
+        ))?;
+
+        Ok(TimeseriesWriter {
+            out,
             _pd: PhantomData::<T>,
         })
     }
