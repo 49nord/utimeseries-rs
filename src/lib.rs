@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::io::Write;
 
 mod err;
+mod util;
 
 pub use err::Error;
 
