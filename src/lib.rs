@@ -14,7 +14,6 @@ mod util;
 pub use err::Error;
 
 const MAGIC_NUMBER: u32 = 0x01755453;
-const NS_PER_S: u64 = 1_000_000_000;
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -36,18 +35,16 @@ impl FileHeader {
             .duration_since(time::UNIX_EPOCH)
             .map_err(|_| Error::TimeOutOfRange)?;
 
-        let interval_ns: u64 = interval
-            .as_secs()
-            .checked_mul(NS_PER_S)
-            .and_then(|n| n.checked_add(interval.subsec_nanos() as u64))
-            .ok_or_else(|| Error::IntervalOutOfRange)?;
-
         Ok(FileHeader {
             magic_number: MAGIC_NUMBER,
             start_delta_s: epoch_delta.as_secs(),
             start_delta_ns: epoch_delta.subsec_nanos(),
-            interval_ns,
+            interval_ns: util::duration_ns64(interval).ok_or_else(|| Error::IntervalOutOfRange)?,
         })
+    }
+
+    fn interval(&self) -> time::Duration {
+        util::ns64_duration(self.interval_ns)
     }
 }
 
