@@ -1,5 +1,5 @@
 use std::{mem, slice, time};
-use std::io::{self, Read, Seek};
+use std::io::{self, Read, Seek, SeekFrom};
 
 const NS_PER_S: u64 = 1_000_000_000;
 
@@ -137,4 +137,27 @@ fn test_read_raw_roundtrip() {
     let snd: TestStruct = unsafe { buf.read_raw() }.unwrap();
 
     assert_eq!(snd, orig);
+}
+
+use err::Error;
+
+pub fn rewind<T, R: Tell + Seek, E: From<io::Error>>(
+    stream: &mut R,
+    pos: u64,
+) -> Option<Result<T, E>> {
+    if let Err(seek_err) = stream.seek(SeekFrom::Start(pos)) {
+        // error during rewind
+        return Some(Err(seek_err.into()));
+    }
+    None
+}
+
+pub unsafe fn load_if_available<T: Copy + Sized, R: Read, E: From<io::Error>>(
+    stream: &mut R,
+) -> Option<Result<T, E>> {
+    match stream.read_raw() {
+        Ok(v) => Some(Ok(v)),
+        Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
+        Err(e) => Some(Err(e.into())),
+    }
 }
