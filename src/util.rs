@@ -112,3 +112,29 @@ impl<R: Read> ReadRaw for R {
         Ok(val)
     }
 }
+
+#[test]
+fn test_read_raw_roundtrip() {
+    use std::io::{Cursor, SeekFrom, Write};
+    use byte_conv::As;
+
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    struct TestStruct {
+        v1: u32,
+        v2: bool,
+    }
+
+    let orig = TestStruct {
+        v1: 0x1122FF77,
+        v2: true,
+    };
+
+    let mut buf = Cursor::new(vec![0; 20]);
+    buf.write_all(orig.as_bytes()).unwrap();
+
+    buf.seek(SeekFrom::Start(0)).unwrap();
+
+    let snd: TestStruct = unsafe { buf.read_raw() }.unwrap();
+
+    assert_eq!(snd, orig);
+}
