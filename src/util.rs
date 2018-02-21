@@ -66,14 +66,14 @@ where
 /// Read dumped in-memory data from stream
 pub trait ReadFrom: Sized {
     /// Read an item from a reader
-    unsafe fn read_from<R: Read>(mut r: R) -> io::Result<Self>;
+    unsafe fn read_from<R: Read>(r: &mut R) -> io::Result<Self>;
 }
 
 impl<T> ReadFrom for T
 where
     T: Sized + Copy,
 {
-    unsafe fn read_from<R: Read>(mut r: R) -> io::Result<Self> {
+    unsafe fn read_from<R: Read>(r: &mut R) -> io::Result<Self> {
         // prepare buffer sized the same as type
         let mut val: T = mem::uninitialized();
 
