@@ -89,6 +89,62 @@ impl FileHeader {
     }
 }
 
+#[test]
+fn file_header_loads_corectly() {
+    let mut buf = Vec::new();
+
+    let header = FileHeader {
+        magic_number: MAGIC_NUMBER,
+        block_length: 99,
+        interval_ns: 987_654_321,
+        start_delta_s: 1,
+        start_delta_ns: 123_456_789,
+    };
+
+    // we're not checking what was written here, most of it is covered by the
+    // `read_raw` tests
+    buf.write_all(header.as_bytes()).unwrap();
+
+    assert_eq!(mem::size_of::<FileHeader>(), buf.len());
+
+    // loading should work now (magic number matches)
+    let restored = FileHeader::load(&mut buf.as_slice()).unwrap();
+
+    assert_eq!(restored.magic_number, MAGIC_NUMBER);
+    assert_eq!(restored.block_length, 99);
+    assert_eq!(restored.interval_ns, 987_654_321);
+    assert_eq!(restored.start_delta_s, 1);
+    assert_eq!(restored.start_delta_ns, 123_456_789);
+}
+
+#[test]
+fn file_header_rejects_too_short() {
+    let buf = vec![0x00, 0x12, 0x34, 0x45];
+
+    match FileHeader::load(&mut buf.as_slice()) {
+        Err(Error::Io(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => (),
+        otherwise @ _ => {
+            panic!("Expected corrupted header error, {:?} instead", otherwise);
+        }
+    }
+}
+
+#[test]
+fn file_header_rejects_invalid_magic_number() {
+    let buf = vec![
+        0x00, 0x12, 0x34, 0x45, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    ];
+
+    match FileHeader::load(&mut buf.as_slice()) {
+        Err(Error::CorruptHeader) => (),
+        otherwise @ _ => {
+            panic!("Expected corrupted header error, {:?} instead", otherwise);
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct BlockHeader {
