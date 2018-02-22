@@ -1,0 +1,5 @@
+image: marcbrinkmann.de/rust-1.24
+
+test:
+  script:
+    - cargo test
