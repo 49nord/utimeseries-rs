@@ -167,6 +167,7 @@ impl BlockHeader {
     }
 }
 
+/// Wraps a writer and writes blocks to it.
 #[derive(Debug)]
 pub struct TimeseriesWriter<T, W> {
     out: W,
@@ -182,6 +183,9 @@ impl<T: Sized, W> TimeseriesWriter<T, W> {
 }
 
 impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
+    /// Creates a new `TimeseriesWriter` and writes the file header.
+    ///
+    /// Each block contains a header with a timestamp, and `block_length` records of type `T`.
     pub fn create(
         mut out: W,
         block_length: u32,
@@ -199,6 +203,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
         })
     }
 
+    /// Writes a new block; `values` must have exactly `block_length` entries.
     pub fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
         // check values are of correct size
         if self.block_length() as usize != values.len() {
@@ -235,6 +240,10 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
 }
 
 impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
+    /// Creates a new `TimeseriesWriter` that appends to the given writer.
+    ///
+    /// It reads the header from the beginning and then skips to the position after the last
+    /// complete block. Additional blocks will be appended from there.
     pub fn append(mut out: W) -> Result<Self, Error> {
         // get current size by seeking to the end and getting the current pos
         let sz = out.seek(io::SeekFrom::End(0))?;
@@ -257,6 +266,7 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
     }
 }
 
+/// Wraps a reader and reads blocks from it.
 pub struct TimeseriesReader<T, R> {
     stream: R,
     header: FileHeader,
@@ -265,6 +275,8 @@ pub struct TimeseriesReader<T, R> {
 }
 
 impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
+    /// Creates a new `TimeseriesReader` with the parameters read from the header at the beginning
+    /// of `stream`.
     pub fn open(mut stream: R) -> Result<Self, Error> {
         stream.seek(SeekFrom::Start(0))?;
 
@@ -283,6 +295,7 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(rd)
     }
 
+    /// Checks if the underlying reader has new blocks and makes them available for reading.
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         let cur_pos = self.stream.tell()?;
 
@@ -297,10 +310,12 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         self.header.block_size::<T>()
     }
 
+    /// The start time of the time series, as read from the file header.
     pub fn start_time(&self) -> time::SystemTime {
         self.header.start_time()
     }
 
+    /// The interval of the time series, as read from the file header.
     pub fn interval(&self) -> time::Duration {
         self.header.interval()
     }
@@ -324,28 +339,37 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(unsafe { self.stream.read_raw() }?)
     }
 
+    /// Returns a new `TimestampIterator`, with the timestamps of all blocks starting from the
+    /// current position of the reader.
     pub fn into_timestamp_iterator(self) -> TimestampIterator<T, R> {
         TimestampIterator { reader: self }
     }
 
+    /// Returns a new `BlockIterator`, with the all blocks starting from the current position of the
+    /// reader.
     pub fn into_block_iterator(self) -> BlockIterator<T, R> {
         BlockIterator { reader: self }
     }
 
+    /// Returns a new `RecordIterator`, that goes through all records starting from the current
+    /// position of the reader.
     pub fn into_record_iterator(self) -> RecordIterator<T, R> {
         RecordIterator::new(BlockIterator { reader: self })
     }
 }
 
+/// An iterator over all timestamps of the blocks in a time series.
 pub struct TimestampIterator<T, R> {
     reader: TimeseriesReader<T, R>,
 }
 
 impl<T: Sized + Copy, R: Read + Seek> TimestampIterator<T, R> {
+    /// Returns the underlying `TimeseriesReader`.
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.reader
     }
 
+    /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.reader.refresh()
     }
@@ -379,15 +403,18 @@ where
     }
 }
 
+/// An iterator over all blocks in a time series.
 pub struct BlockIterator<T, R> {
     reader: TimeseriesReader<T, R>,
 }
 
 impl<T: Sized + Copy, R: Read + Seek> BlockIterator<T, R> {
+    /// Returns the underlying `TimeseriesReader`.
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.reader
     }
 
+    /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.reader.refresh()
     }
@@ -419,6 +446,9 @@ where
     }
 }
 
+/// An iterator over all records in a time series.
+///
+/// It returns every block's records in sequence, together with the corresponding time offset.
 pub struct RecordIterator<T, R> {
     block_iter: BlockIterator<T, R>,
     offset: time::Duration,
@@ -427,7 +457,7 @@ pub struct RecordIterator<T, R> {
 }
 
 impl<T: Sized + Copy, R: Read + Seek> RecordIterator<T, R> {
-    pub fn new(block_iter: BlockIterator<T, R>) -> RecordIterator<T, R> {
+    fn new(block_iter: BlockIterator<T, R>) -> RecordIterator<T, R> {
         RecordIterator {
             block_iter,
             offset: time::Duration::from_millis(0),
@@ -436,10 +466,12 @@ impl<T: Sized + Copy, R: Read + Seek> RecordIterator<T, R> {
         }
     }
 
+    /// Returns the underlying `TimeseriesReader`.
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.block_iter.into_inner()
     }
 
+    /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.block_iter.refresh()
     }
@@ -487,13 +519,15 @@ mod tests {
     use std::io::{self, ErrorKind, Read, SeekFrom, Write};
     use std::time::{Duration, SystemTime};
 
+    /// In-memory test data that can be cloned to simulate a file that is simultaneously written to
+    /// and read from.
     #[derive(Clone, Default)]
     struct TestFile {
         pos: u64,
         bytes: Rc<RefCell<Vec<u8>>>,
     }
 
-    // Adapted from the `Cursor` implementation.
+    // Adapted from the `std::io::Cursor` implementation.
     impl Read for TestFile {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             let amt = cmp::min(self.pos, self.bytes.borrow().len() as u64) as usize;
@@ -510,7 +544,7 @@ mod tests {
         }
     }
 
-    // Adapted from the `Cursor` implementation.
+    // Adapted from the `std::io::Cursor` implementation.
     impl Write for TestFile {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             let pos = self.pos as usize;
@@ -528,7 +562,7 @@ mod tests {
         }
     }
 
-    // Adapted from the `Cursor` implementation.
+    // Adapted from the `std::io::Cursor` implementation.
     impl Seek for TestFile {
         fn seek(&mut self, style: SeekFrom) -> io::Result<u64> {
             let (base_pos, offset) = match style {
@@ -566,7 +600,7 @@ mod tests {
 
         let mut writer = TimeseriesWriter::create(file.clone(), 3, SystemTime::now(), ms(100))
             .expect("create writer");
-        writer.record_values(ms(200), &block1).expect("write");
+        writer.record_values(ms(100), &block1).expect("write");
         let mut reader = TimeseriesReader::open(file.clone()).expect("open");
         let mut timestamp_iter = TimeseriesReader::<u32, _>::open(file.clone())
             .expect("open")
@@ -580,25 +614,25 @@ mod tests {
 
         assert_eq!(3, reader.block_length());
         let header = reader.load_block_header().expect("load header");
-        assert_eq!(ms(200), header.duration());
+        assert_eq!(ms(100), header.duration());
         assert_eq!(1u32, reader.load_record().expect("load record"));
         assert_eq!(2u32, reader.load_record().expect("load record"));
         assert_eq!(3u32, reader.load_record().expect("load record"));
         assert!(reader.load_record().is_err());
         assert_eq!(
-            ms(200),
+            ms(100),
             timestamp_iter.next().expect("ts iter").expect("ts result")
         );
         assert!(timestamp_iter.next().is_none());
         assert_eq!(
-            (ms(200), block1.clone()),
+            (ms(100), block1.clone()),
             block_iter.next().expect("b iter").expect("b result")
         );
         assert!(block_iter.next().is_none());
 
-        writer.record_values(ms(300), &block2).expect("write");
+        writer.record_values(ms(400), &block2).expect("write");
         let header = reader.load_block_header().expect("load header");
-        assert_eq!(ms(300), header.duration());
+        assert_eq!(ms(400), header.duration());
         assert_eq!(4u32, reader.load_record().expect("load record"));
         assert_eq!(5u32, reader.load_record().expect("load record"));
         assert_eq!(6u32, reader.load_record().expect("load record"));
@@ -609,19 +643,61 @@ mod tests {
         assert!(block_iter.refresh().is_ok());
         assert!(record_iter.refresh().is_ok());
         assert_eq!(
-            ms(300),
+            ms(400),
             timestamp_iter.next().expect("ts iter").expect("ts result")
         );
         assert!(timestamp_iter.next().is_none());
         assert_eq!(
-            (ms(300), block2.clone()),
+            (ms(400), block2.clone()),
             block_iter.next().expect("b iter").expect("b result")
         );
         assert!(block_iter.next().is_none());
         assert_eq!(
-            block1.into_iter().chain(block2).collect::<Vec<_>>(),
+            vec![
+                (ms(100), 1),
+                (ms(200), 2),
+                (ms(300), 3),
+                (ms(400), 4),
+                (ms(500), 5),
+                (ms(600), 6),
+            ],
             record_iter
-                .map(|result| result.expect("r iter").1)
+                .map(|result| result.expect("r iter"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn into() {
+        let file = TestFile::default();
+        let ms = Duration::from_millis;
+        let block1 = vec![1u32, 2u32, 3u32];
+        let block2 = vec![4u32, 5u32, 6u32];
+        let block3 = vec![7u32, 8u32, 9u32];
+
+        let mut writer = TimeseriesWriter::create(file.clone(), 3, SystemTime::now(), ms(33))
+            .expect("create writer");
+        writer.record_values(ms(0), &block1).expect("write");
+        writer.record_values(ms(100), &block2).expect("write");
+        writer.record_values(ms(200), &block3).expect("write");
+
+        let reader = TimeseriesReader::open(file.clone()).expect("open");
+        let mut timestamp_iter = reader.into_timestamp_iterator();
+
+        assert_eq!(
+            ms(0),
+            timestamp_iter.next().expect("ts iter").expect("ts result")
+        );
+        let mut block_iter = timestamp_iter.into_inner().into_block_iterator();
+        assert_eq!(
+            (ms(100), block2.clone()),
+            block_iter.next().expect("b iter").expect("b result")
+        );
+        let record_iter = block_iter.into_inner().into_record_iterator();
+        assert_eq!(
+            vec![(ms(200), 7), (ms(233), 8), (ms(266), 9)],
+            record_iter
+                .map(|result| result.expect("r iter"))
                 .collect::<Vec<_>>()
         );
     }
