@@ -11,7 +11,7 @@ quick_error! {
         }
         IntervalOutOfRange {
             description("interval out of range")
-            display("The interval in nanoseconds cannot be represent as an unsigned 64-bit integer ")
+            display("The interval in nanoseconds cannot be represent as an unsigned 64-bit integer")
         }
         TimeOutOfRange {
             description("time out of range")
@@ -23,7 +23,8 @@ quick_error! {
         }
         BlockSizeMismatch(want: u32, have: u32) {
             description("block size mismatch")
-            display("Invalid number of items for block. Block length is {} items, but got passed {}", want, have)
+            display("Invalid number of items for block. Block length is {} items, but got passed {}"
+                    , want, have)
         }
     }
 }

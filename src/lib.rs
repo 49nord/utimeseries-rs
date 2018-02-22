@@ -90,7 +90,7 @@ impl FileHeader {
 }
 
 #[test]
-fn file_header_loads_corectly() {
+fn file_header_loads_correctly() {
     let mut buf = Vec::new();
 
     let header = FileHeader {
@@ -222,6 +222,16 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
 
         Ok(())
     }
+
+    /// Gets a reference to the underlying writer.
+    pub fn get_ref(&self) -> &W {
+        &self.out
+    }
+
+    /// Gets a mutable reference to the underlying writer.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.out
+    }
 }
 
 impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
@@ -314,16 +324,34 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(unsafe { self.stream.read_raw() }?)
     }
 
-    pub fn timestamp_iterator(&mut self) -> TimestampIterator<T, R> {
+    pub fn into_timestamp_iterator(self) -> TimestampIterator<T, R> {
         TimestampIterator { reader: self }
+    }
+
+    pub fn into_block_iterator(self) -> BlockIterator<T, R> {
+        BlockIterator { reader: self }
+    }
+
+    pub fn into_record_iterator(self) -> RecordIterator<T, R> {
+        RecordIterator::new(BlockIterator { reader: self })
     }
 }
 
-pub struct TimestampIterator<'a, T: 'a, R: 'a> {
-    reader: &'a mut TimeseriesReader<T, R>,
+pub struct TimestampIterator<T, R> {
+    reader: TimeseriesReader<T, R>,
 }
 
-impl<'a, T, R> Iterator for TimestampIterator<'a, T, R>
+impl<T: Sized + Copy, R: Read + Seek> TimestampIterator<T, R> {
+    pub fn into_inner(self) -> TimeseriesReader<T, R> {
+        self.reader
+    }
+
+    pub fn refresh(&mut self) -> Result<(), io::Error> {
+        self.reader.refresh()
+    }
+}
+
+impl<T, R> Iterator for TimestampIterator<T, R>
 where
     T: Copy + Sized,
     R: Read + Seek,
@@ -335,7 +363,7 @@ where
         let pos = iter_try!(self.reader.file_pos());
 
         // if there's not enough space for another block, don't read
-        if pos + self.reader.block_size() >= self.reader.stream_length {
+        if pos + self.reader.block_size() > self.reader.stream_length {
             return None;
         }
 
@@ -343,15 +371,29 @@ where
         // the next block
         let block_header = iter_try!(self.reader.load_block_header());
 
+        // Skip the block's data.
+        let records_size = (self.reader.block_size() - BLOCK_HEADER_SIZE) as i64;
+        iter_try!(self.reader.stream.seek(SeekFrom::Current(records_size)));
+
         Some(Ok(block_header.duration()))
     }
 }
 
-pub struct BlockIterator<'a, T: 'a, R: 'a> {
-    reader: &'a mut TimeseriesReader<T, R>,
+pub struct BlockIterator<T, R> {
+    reader: TimeseriesReader<T, R>,
 }
 
-impl<'a, T, R> Iterator for BlockIterator<'a, T, R>
+impl<T: Sized + Copy, R: Read + Seek> BlockIterator<T, R> {
+    pub fn into_inner(self) -> TimeseriesReader<T, R> {
+        self.reader
+    }
+
+    pub fn refresh(&mut self) -> Result<(), io::Error> {
+        self.reader.refresh()
+    }
+}
+
+impl<T, R> Iterator for BlockIterator<T, R>
 where
     T: Copy + Sized,
     R: Read + Seek,
@@ -361,7 +403,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // initial position
         let pos = iter_try!(self.reader.file_pos());
-        if pos + self.reader.block_size() >= self.reader.stream_length {
+        if pos + self.reader.block_size() > self.reader.stream_length {
             return None;
         }
         let block_header = iter_try!(self.reader.load_block_header());
@@ -377,14 +419,33 @@ where
     }
 }
 
-pub struct RecordIterator<'a, T: 'a, R: 'a> {
-    block_iter: &'a mut BlockIterator<'a, T, R>,
+pub struct RecordIterator<T, R> {
+    block_iter: BlockIterator<T, R>,
     offset: time::Duration,
     data: Vec<T>,
     index: usize,
 }
 
-impl<'a, T, R> Iterator for RecordIterator<'a, T, R>
+impl<T: Sized + Copy, R: Read + Seek> RecordIterator<T, R> {
+    pub fn new(block_iter: BlockIterator<T, R>) -> RecordIterator<T, R> {
+        RecordIterator {
+            block_iter,
+            offset: time::Duration::from_millis(0),
+            data: Vec::new(),
+            index: 0,
+        }
+    }
+
+    pub fn into_inner(self) -> TimeseriesReader<T, R> {
+        self.block_iter.into_inner()
+    }
+
+    pub fn refresh(&mut self) -> Result<(), io::Error> {
+        self.block_iter.refresh()
+    }
+}
+
+impl<T, R> Iterator for RecordIterator<T, R>
 where
     T: Copy + Sized,
     R: Read + Seek,
@@ -414,5 +475,154 @@ where
         self.offset += self.block_iter.reader.interval();
 
         return Some(Ok(rv));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::cmp;
+    use std::rc::Rc;
+    use std::io::{self, ErrorKind, Read, SeekFrom, Write};
+    use std::time::{Duration, SystemTime};
+
+    #[derive(Clone, Default)]
+    struct TestFile {
+        pos: u64,
+        bytes: Rc<RefCell<Vec<u8>>>,
+    }
+
+    // Adapted from the `Cursor` implementation.
+    impl Read for TestFile {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let amt = cmp::min(self.pos, self.bytes.borrow().len() as u64) as usize;
+            let n = Read::read(&mut &self.bytes.borrow_mut()[amt..], buf)?;
+            self.pos += n as u64;
+            Ok(n)
+        }
+
+        fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+            let amt = cmp::min(self.pos, self.bytes.borrow().len() as u64) as usize;
+            Read::read_exact(&mut &self.bytes.borrow_mut()[amt..], buf)?;
+            self.pos += buf.len() as u64;
+            Ok(())
+        }
+    }
+
+    // Adapted from the `Cursor` implementation.
+    impl Write for TestFile {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let pos = self.pos as usize;
+            let mut vec = self.bytes.borrow_mut();
+            if vec.len() < pos + buf.len() {
+                vec.resize(pos + buf.len(), 0);
+            }
+            vec[pos..pos + buf.len()].copy_from_slice(buf);
+            self.pos += buf.len() as u64;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // Adapted from the `Cursor` implementation.
+    impl Seek for TestFile {
+        fn seek(&mut self, style: SeekFrom) -> io::Result<u64> {
+            let (base_pos, offset) = match style {
+                SeekFrom::Start(n) => {
+                    self.pos = n;
+                    return Ok(n);
+                }
+                SeekFrom::End(n) => (self.bytes.borrow().len() as u64, n),
+                SeekFrom::Current(n) => (self.pos, n),
+            };
+            let new_pos = if offset >= 0 {
+                base_pos.checked_add(offset as u64)
+            } else {
+                base_pos.checked_sub((offset.wrapping_neg()) as u64)
+            };
+            match new_pos {
+                Some(n) => {
+                    self.pos = n;
+                    Ok(self.pos)
+                }
+                None => Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "invalid seek to a negative or overflowing position",
+                )),
+            }
+        }
+    }
+
+    #[test]
+    fn read_and_write() {
+        let file = TestFile::default();
+        let ms = Duration::from_millis;
+        let block1 = vec![1u32, 2u32, 3u32];
+        let block2 = vec![4u32, 5u32, 6u32];
+
+        let mut writer = TimeseriesWriter::create(file.clone(), 3, SystemTime::now(), ms(100))
+            .expect("create writer");
+        writer.record_values(ms(200), &block1).expect("write");
+        let mut reader = TimeseriesReader::open(file.clone()).expect("open");
+        let mut timestamp_iter = TimeseriesReader::<u32, _>::open(file.clone())
+            .expect("open")
+            .into_timestamp_iterator();
+        let mut block_iter = TimeseriesReader::<u32, _>::open(file.clone())
+            .expect("open")
+            .into_block_iterator();
+        let mut record_iter = TimeseriesReader::<u32, _>::open(file.clone())
+            .expect("open")
+            .into_record_iterator();
+
+        assert_eq!(3, reader.block_length());
+        let header = reader.load_block_header().expect("load header");
+        assert_eq!(ms(200), header.duration());
+        assert_eq!(1u32, reader.load_record().expect("load record"));
+        assert_eq!(2u32, reader.load_record().expect("load record"));
+        assert_eq!(3u32, reader.load_record().expect("load record"));
+        assert!(reader.load_record().is_err());
+        assert_eq!(
+            ms(200),
+            timestamp_iter.next().expect("ts iter").expect("ts result")
+        );
+        assert!(timestamp_iter.next().is_none());
+        assert_eq!(
+            (ms(200), block1.clone()),
+            block_iter.next().expect("b iter").expect("b result")
+        );
+        assert!(block_iter.next().is_none());
+
+        writer.record_values(ms(300), &block2).expect("write");
+        let header = reader.load_block_header().expect("load header");
+        assert_eq!(ms(300), header.duration());
+        assert_eq!(4u32, reader.load_record().expect("load record"));
+        assert_eq!(5u32, reader.load_record().expect("load record"));
+        assert_eq!(6u32, reader.load_record().expect("load record"));
+        assert!(reader.load_record().is_err());
+        assert!(timestamp_iter.next().is_none());
+        assert!(block_iter.next().is_none());
+        assert!(timestamp_iter.refresh().is_ok());
+        assert!(block_iter.refresh().is_ok());
+        assert!(record_iter.refresh().is_ok());
+        assert_eq!(
+            ms(300),
+            timestamp_iter.next().expect("ts iter").expect("ts result")
+        );
+        assert!(timestamp_iter.next().is_none());
+        assert_eq!(
+            (ms(300), block2.clone()),
+            block_iter.next().expect("b iter").expect("b result")
+        );
+        assert!(block_iter.next().is_none());
+        assert_eq!(
+            block1.into_iter().chain(block2).collect::<Vec<_>>(),
+            record_iter
+                .map(|result| result.expect("r iter").1)
+                .collect::<Vec<_>>()
+        );
     }
 }
