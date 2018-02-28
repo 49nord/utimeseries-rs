@@ -7,7 +7,6 @@ use tempdir::TempDir;
 use utimeseries::{TimeseriesReader, TimeseriesWriter};
 
 #[test]
-#[ignore]
 fn file() {
     let dir = TempDir::new("utimeseries-test").expect("temp dir");
     let path = dir.path().join("timeseries.log");
