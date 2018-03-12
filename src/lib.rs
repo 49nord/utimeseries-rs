@@ -237,6 +237,16 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     pub fn get_mut(&mut self) -> &mut W {
         &mut self.out
     }
+
+    /// The start time of the time series.
+    pub fn start_time(&self) -> time::SystemTime {
+        self.header.start_time()
+    }
+
+    /// The interval of the time series.
+    pub fn interval(&self) -> time::Duration {
+        self.header.interval()
+    }
 }
 
 impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
