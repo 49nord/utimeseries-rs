@@ -203,6 +203,20 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
         })
     }
 
+    /// Creates a new `TimeseriesWriter` and writes the file header.
+    ///
+    /// Each block contains a header with a timestamp, and `block_length` records of type `T`. The
+    /// interval is given in nanoseconds.
+    pub fn create_with_ns(
+        out: W,
+        block_length: u32,
+        start: time::SystemTime,
+        interval_ns: u64,
+    ) -> Result<Self, Error> {
+        let interval = util::ns64_duration(interval_ns);
+        Self::create(out, block_length, start, interval)
+    }
+
     /// Writes a new block; `values` must have exactly `block_length` entries.
     pub fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
         // check values are of correct size
