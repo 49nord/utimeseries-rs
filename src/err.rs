@@ -26,5 +26,9 @@ quick_error! {
             display("Invalid number of items for block. Block length is {} items, but got passed {}"
                     , want, have)
         }
+        InvalidPathName {
+            description("invalid path name")
+            display("A given name or id resulted in an invalid path name")
+        }
     }
 }

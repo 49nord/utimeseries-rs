@@ -8,6 +8,7 @@ use std::{io, mem, time, u32};
 use std::marker::PhantomData;
 use std::io::{Read, Seek, SeekFrom, Write};
 
+pub mod database;
 mod err;
 #[macro_use]
 mod util;
