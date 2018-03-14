@@ -55,6 +55,7 @@ impl FileHeader {
         })
     }
 
+    #[inline]
     fn load<R: Read>(r: &mut R) -> Result<Self, Error> {
         // read header from file
         let header: FileHeader = unsafe { r.read_raw() }?;
@@ -67,22 +68,27 @@ impl FileHeader {
         }
     }
 
+    #[inline]
     fn interval(&self) -> time::Duration {
         util::ns64_duration(self.interval_ns)
     }
 
+    #[inline]
     fn start_time(&self) -> time::SystemTime {
         time::UNIX_EPOCH + time::Duration::new(self.start_delta_s, self.start_delta_ns)
     }
 
+    #[inline]
     fn block_size<T: Sized>(&self) -> u64 {
         BLOCK_HEADER_SIZE + mem::size_of::<T>() as u64 * self.block_length as u64
     }
 
+    #[inline]
     fn nth_block_start<T: Sized>(&self, n: u64) -> u64 {
         FILE_HEADER_SIZE + n * self.block_size::<T>()
     }
 
+    #[inline]
     fn total_blocks<T: Sized>(&self, sz: u64) -> u64 {
         let data_len = sz - FILE_HEADER_SIZE;
         data_len - (data_len % self.block_size::<T>())
@@ -152,16 +158,19 @@ struct BlockHeader {
 }
 
 impl BlockHeader {
+    #[inline]
     fn new(offset: time::Duration) -> Result<BlockHeader, Error> {
         Ok(BlockHeader {
             offset_ns: util::duration_ns64(offset).ok_or_else(|| Error::IntervalOutOfRange)?,
         })
     }
 
+    #[inline]
     fn load<R: Read>(r: &mut R) -> Result<Self, Error> {
         Ok(unsafe { r.read_raw() }?)
     }
 
+    #[inline]
     fn duration(&self) -> std::time::Duration {
         util::ns64_duration(self.offset_ns)
     }
@@ -186,6 +195,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     /// Creates a new `TimeseriesWriter` and writes the file header.
     ///
     /// Each block contains a header with a timestamp, and `block_length` records of type `T`.
+    #[inline]
     pub fn create(
         mut out: W,
         block_length: u32,
@@ -207,6 +217,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     ///
     /// Each block contains a header with a timestamp, and `block_length` records of type `T`. The
     /// interval is given in nanoseconds.
+    #[inline]
     pub fn create_with_ns(
         out: W,
         block_length: u32,
@@ -218,6 +229,7 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     }
 
     /// Writes a new block; `values` must have exactly `block_length` entries.
+    #[inline]
     pub fn record_values(&mut self, offset: time::Duration, values: &[T]) -> Result<(), Error> {
         // check values are of correct size
         if self.block_length() as usize != values.len() {
@@ -243,21 +255,25 @@ impl<T: Sized + Copy, W: Write> TimeseriesWriter<T, W> {
     }
 
     /// Gets a reference to the underlying writer.
+    #[inline]
     pub fn get_ref(&self) -> &W {
         &self.out
     }
 
     /// Gets a mutable reference to the underlying writer.
+    #[inline]
     pub fn get_mut(&mut self) -> &mut W {
         &mut self.out
     }
 
     /// The start time of the time series.
+    #[inline]
     pub fn start_time(&self) -> time::SystemTime {
         self.header.start_time()
     }
 
     /// The interval of the time series.
+    #[inline]
     pub fn interval(&self) -> time::Duration {
         self.header.interval()
     }
@@ -268,6 +284,7 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
     ///
     /// It reads the header from the beginning and then skips to the position after the last
     /// complete block. Additional blocks will be appended from there.
+    #[inline]
     pub fn append(mut out: W) -> Result<Self, Error> {
         // get current size by seeking to the end and getting the current pos
         let sz = out.seek(io::SeekFrom::End(0))?;
@@ -301,6 +318,7 @@ pub struct TimeseriesReader<T, R> {
 impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
     /// Creates a new `TimeseriesReader` with the parameters read from the header at the beginning
     /// of `stream`.
+    #[inline]
     pub fn open(mut stream: R) -> Result<Self, Error> {
         stream.seek(SeekFrom::Start(0))?;
 
@@ -320,6 +338,7 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
     }
 
     /// Checks if the underlying reader has new blocks and makes them available for reading.
+    #[inline]
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         let cur_pos = self.stream.tell()?;
 
@@ -330,16 +349,19 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         Ok(())
     }
 
+    #[inline]
     fn block_size(&self) -> u64 {
         self.header.block_size::<T>()
     }
 
     /// The start time of the time series, as read from the file header.
+    #[inline]
     pub fn start_time(&self) -> time::SystemTime {
         self.header.start_time()
     }
 
     /// The interval of the time series, as read from the file header.
+    #[inline]
     pub fn interval(&self) -> time::Duration {
         self.header.interval()
     }
@@ -349,6 +371,7 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
         self.header.block_length
     }
 
+    #[inline]
     fn file_pos(&mut self) -> io::Result<u64> {
         self.stream.tell()
     }
@@ -365,18 +388,21 @@ impl<T: Sized + Copy, R: Read + Seek> TimeseriesReader<T, R> {
 
     /// Returns a new `TimestampIterator`, with the timestamps of all blocks starting from the
     /// current position of the reader.
+    #[inline]
     pub fn into_timestamp_iterator(self) -> TimestampIterator<T, R> {
         TimestampIterator { reader: self }
     }
 
     /// Returns a new `BlockIterator`, with the all blocks starting from the current position of the
     /// reader.
+    #[inline]
     pub fn into_block_iterator(self) -> BlockIterator<T, R> {
         BlockIterator { reader: self }
     }
 
     /// Returns a new `RecordIterator`, that goes through all records starting from the current
     /// position of the reader.
+    #[inline]
     pub fn into_record_iterator(self) -> RecordIterator<T, R> {
         RecordIterator::new(BlockIterator { reader: self })
     }
@@ -389,11 +415,13 @@ pub struct TimestampIterator<T, R> {
 
 impl<T: Sized + Copy, R: Read + Seek> TimestampIterator<T, R> {
     /// Returns the underlying `TimeseriesReader`.
+    #[inline]
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.reader
     }
 
     /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
+    #[inline]
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.reader.refresh()
     }
@@ -406,6 +434,7 @@ where
 {
     type Item = Result<time::Duration, Error>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // initial position
         let pos = iter_try!(self.reader.file_pos());
@@ -434,11 +463,13 @@ pub struct BlockIterator<T, R> {
 
 impl<T: Sized + Copy, R: Read + Seek> BlockIterator<T, R> {
     /// Returns the underlying `TimeseriesReader`.
+    #[inline]
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.reader
     }
 
     /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
+    #[inline]
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.reader.refresh()
     }
@@ -451,6 +482,7 @@ where
 {
     type Item = Result<(time::Duration, Vec<T>), Error>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // initial position
         let pos = iter_try!(self.reader.file_pos());
@@ -481,6 +513,7 @@ pub struct RecordIterator<T, R> {
 }
 
 impl<T: Sized + Copy, R: Read + Seek> RecordIterator<T, R> {
+    #[inline]
     fn new(block_iter: BlockIterator<T, R>) -> RecordIterator<T, R> {
         RecordIterator {
             block_iter,
@@ -491,11 +524,13 @@ impl<T: Sized + Copy, R: Read + Seek> RecordIterator<T, R> {
     }
 
     /// Returns the underlying `TimeseriesReader`.
+    #[inline]
     pub fn into_inner(self) -> TimeseriesReader<T, R> {
         self.block_iter.into_inner()
     }
 
     /// Refreshes the underlying `TimeseriesReader`, so that new blocks become available.
+    #[inline]
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.block_iter.refresh()
     }
@@ -508,6 +543,7 @@ where
 {
     type Item = Result<(time::Duration, T), Error>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // refill current block if empty
         if self.index >= self.data.len() {
