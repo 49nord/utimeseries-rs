@@ -12,6 +12,7 @@ fn file() {
     let path = dir.path().join("timeseries.log");
     let file = File::create(&path).expect("create file");
     let start = SystemTime::now();
+    let new_start = start + Duration::from_secs(10);
     let mut writer =
         TimeseriesWriter::create(file, 2, start, Duration::from_millis(100)).expect("create");
     writer
@@ -48,7 +49,7 @@ fn file() {
     assert!(block_iter.next().is_none());
 
     let file3 = OpenOptions::new()
-        .append(true)
+        .write(true)
         .read(true)
         .open(&path)
         .expect("open file");
@@ -56,6 +57,7 @@ fn file() {
     writer2
         .record_values(Duration::from_millis(600), &[7u32, 8u32])
         .expect("record");
+    assert_eq!(start, writer2.set_start_time(new_start).expect("set start"));
 
     assert!(block_iter.next().is_none());
     block_iter.refresh().expect("refresh");
@@ -65,9 +67,9 @@ fn file() {
     );
 
     let file4 = File::open(&path).expect("open file");
-    let block_iter = TimeseriesReader::open(file4)
-        .expect("open")
-        .into_block_iterator();
+    let writer4 = TimeseriesReader::open(file4).expect("open");
+    assert_eq!(new_start, writer4.start_time());
+    let block_iter = writer4.into_block_iterator();
     assert_eq!(
         vec![
             (Duration::from_millis(0), vec![1u32, 2u32]),
