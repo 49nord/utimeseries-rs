@@ -92,7 +92,7 @@ impl FileHeader {
     #[inline]
     fn total_blocks<T: Sized>(&self, sz: u64) -> u64 {
         let data_len = sz - FILE_HEADER_SIZE;
-        data_len - (data_len % self.block_size::<T>())
+        data_len / self.block_size::<T>()
     }
 }
 
@@ -302,9 +302,27 @@ impl<T: Sized + Copy, W: Write + Seek + Read> TimeseriesWriter<T, W> {
 
         Ok(TimeseriesWriter {
             out,
-            header: header,
+            header,
             _pd: PhantomData::<T>,
         })
+    }
+
+    /// Updates the timeseries' start time, without changing any deltas. Returns the previous start
+    /// time.
+    ///
+    /// **WARNING** The underlying file must be opened in _write_ mode. If it is in append mode, it
+    /// will append garbage data to the end of the stream!
+    pub fn set_start_time(&mut self, start: time::SystemTime) -> Result<time::SystemTime, Error> {
+        let old_start = self.header.start_time();
+        self.header = FileHeader::new(self.block_length(), start, self.interval())?;
+
+        // get current position, write header, restore position
+        let cur_pos = self.out.tell()?;
+        self.out.seek(io::SeekFrom::Start(0))?;
+        self.out.write_all(self.header.as_bytes())?;
+        self.out.seek(io::SeekFrom::Start(cur_pos))?;
+
+        Ok(old_start)
     }
 }
 
@@ -554,7 +572,7 @@ where
                     self.data = data;
                     self.index = 0;
                 }
-                Some(Err(e)) => return Some(Err(e.into())),
+                Some(Err(e)) => return Some(Err(e)),
                 None => {
                     // no more blocks -> we're done
                     return None;
@@ -567,7 +585,7 @@ where
         self.index += 1;
         self.offset += self.block_iter.reader.interval();
 
-        return Some(Ok(rv));
+        Some(Ok(rv))
     }
 }
 
