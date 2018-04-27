@@ -4,9 +4,9 @@ extern crate cast;
 extern crate quick_error;
 
 use byte_conv::As;
-use std::{io, mem, time, u32};
-use std::marker::PhantomData;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
+use std::{io, mem, time, u32};
 
 pub mod database;
 mod err;
@@ -16,7 +16,7 @@ mod util;
 pub use err::Error;
 use util::{ReadRaw, Tell};
 
-const MAGIC_NUMBER: u32 = 0x01755453;
+const MAGIC_NUMBER: u32 = 0x0175_5453;
 const FILE_HEADER_SIZE: u64 = mem::size_of::<FileHeader>() as u64;
 const BLOCK_HEADER_SIZE: u64 = mem::size_of::<BlockHeader>() as u64;
 
@@ -81,7 +81,7 @@ impl FileHeader {
 
     #[inline]
     fn block_size<T: Sized>(&self) -> u64 {
-        BLOCK_HEADER_SIZE + mem::size_of::<T>() as u64 * self.block_length as u64
+        BLOCK_HEADER_SIZE + mem::size_of::<T>() as u64 * u64::from(self.block_length)
     }
 
     #[inline]
@@ -130,7 +130,7 @@ fn file_header_rejects_too_short() {
 
     match FileHeader::load(&mut buf.as_slice()) {
         Err(Error::Io(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => (),
-        otherwise @ _ => {
+        otherwise => {
             panic!("Expected corrupted header error, {:?} instead", otherwise);
         }
     }
@@ -146,7 +146,7 @@ fn file_header_rejects_invalid_magic_number() {
 
     match FileHeader::load(&mut buf.as_slice()) {
         Err(Error::CorruptHeader) => (),
-        otherwise @ _ => {
+        otherwise => {
             panic!("Expected corrupted header error, {:?} instead", otherwise);
         }
     }
@@ -594,8 +594,8 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::cmp;
-    use std::rc::Rc;
     use std::io::{self, ErrorKind, Read, SeekFrom, Write};
+    use std::rc::Rc;
     use std::time::{Duration, SystemTime};
 
     /// In-memory test data that can be cloned to simulate a file that is simultaneously written to
