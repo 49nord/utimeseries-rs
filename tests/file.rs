@@ -1,14 +1,13 @@
-extern crate tempdir;
+extern crate tempfile;
 extern crate utimeseries;
 
 use std::fs::{File, OpenOptions};
 use std::time::{Duration, SystemTime};
-use tempdir::TempDir;
 use utimeseries::{TimeseriesReader, TimeseriesWriter};
 
 #[test]
 fn file() {
-    let dir = TempDir::new("utimeseries-test").expect("temp dir");
+    let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("timeseries.log");
     let file = File::create(&path).expect("create file");
     let start = SystemTime::now();

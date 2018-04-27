@@ -1,5 +1,5 @@
-use std::{mem, slice, time};
 use std::io::{self, Read, Seek};
+use std::{mem, slice, time};
 
 const NS_PER_S: u64 = 1_000_000_000;
 
@@ -10,7 +10,7 @@ pub fn duration_ns64(duration: time::Duration) -> Option<u64> {
     duration
         .as_secs()
         .checked_mul(NS_PER_S)
-        .and_then(|n| n.checked_add(duration.subsec_nanos() as u64))
+        .and_then(|n| n.checked_add(u64::from(duration.subsec_nanos())))
 }
 
 #[test]
@@ -115,8 +115,8 @@ impl<R: Read> ReadRaw for R {
 
 #[test]
 fn test_read_raw_roundtrip() {
-    use std::io::{Cursor, SeekFrom, Write};
     use byte_conv::As;
+    use std::io::{Cursor, SeekFrom, Write};
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     struct TestStruct {
@@ -125,7 +125,7 @@ fn test_read_raw_roundtrip() {
     }
 
     let orig = TestStruct {
-        v1: 0x1122FF77,
+        v1: 0x1122_FF77,
         v2: true,
     };
 
@@ -141,8 +141,10 @@ fn test_read_raw_roundtrip() {
 
 // FIXME: maybe move this to itertools?
 macro_rules! iter_try {
-    ($e: expr) => (match $e {
-        Ok(v) => v,
-        Err(e) => return Some(Err(e.into())),
-    })
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e.into())),
+        }
+    };
 }
