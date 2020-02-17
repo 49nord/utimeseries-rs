@@ -102,14 +102,14 @@ pub trait ReadRaw {
 impl<R: Read> ReadRaw for R {
     unsafe fn read_raw<T: Copy + Sized>(&mut self) -> io::Result<T> {
         // prepare buffer sized the same as type
-        let mut val: T = mem::uninitialized();
+        let mut val: mem::MaybeUninit<T> = mem::MaybeUninit::uninit();
 
         // construct raw slice over `val`
         let buf: &mut [u8] =
-            slice::from_raw_parts_mut(&mut val as *mut T as *mut u8, mem::size_of::<T>());
+            slice::from_raw_parts_mut(val.as_mut_ptr() as *mut u8, mem::size_of::<T>());
 
         self.read_exact(buf)?;
-        Ok(val)
+        Ok(val.assume_init())
     }
 }
 
